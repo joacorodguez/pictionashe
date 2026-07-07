@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node -v)",
+      "PowerShell(npm -v)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/joaco/AppData/Local/Programs/**)",
+      "Read(//c/Users/joaco/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "PowerShell($dest = \"$env:USERPROFILE\\\\.node-portable\"; New-Item -ItemType Directory -Force $dest | Out-Null; $zip = \"$env:LOCALAPPDATA\\\\Temp\\\\node-portable.zip\"; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri \"https://nodejs.org/dist/v22.12.0/node-v22.12.0-win-x64.zip\" -OutFile $zip; Expand-Archive -Path $zip -DestinationPath $dest -Force; Remove-Item $zip; Get-ChildItem $dest)",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\joaco\\\\.node-portable\\\\node-v22.12.0-win-x64;$env:Path\"; node -v; npm -v)",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\joaco\\\\.node-portable\\\\node-v22.12.0-win-x64;$env:Path\"; npm install --no-fund --no-audit)",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\joaco\\\\.node-portable\\\\node-v22.12.0-win-x64;$env:Path\"; npm run build)",
+      "PowerShell(Copy-Item dist\\\\index.html Pictionahse.html -Force)",
+      "PowerShell($env:Path = \"C:\\\\Users\\\\joaco\\\\.node-portable\\\\node-v22.12.0-win-x64;$env:Path\"; npm run build; Copy-Item dist\\\\index.html Pictionashe.html -Force; Remove-Item Pictionahse.html -Force -Confirm:$false)",
+      "Bash(ls -la *.html)",
+      "Bash(curl -s -o /dev/null -w \"index.html HTTP: %{http_code}\\\\n\" http://localhost:5173/)"
+    ]
+  }
+}

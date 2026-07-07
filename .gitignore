@@ -1,0 +1,16 @@
+# dependencias
+node_modules/
+
+# build (el hosting lo genera solo)
+dist/
+
+# logs / temporales
+*.log
+.DS_Store
+Thumbs.db
+
+# entornos
+.env
+.env.local
+.vercel
+.netlify
