@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { BANK } from "../bank.js";
 import { Sound } from "../audio/sound.js";
 import { colorAt, shuffle, prefersReduced, TIMER_DEFAULT } from "./constants.js";
+import { cameraBus, wait } from "../three/cameraBus.js";
 
 /* ============================================================
    useGameEngine — LÓGICA DEL JUEGO (headless, sin presentación)
@@ -23,7 +24,9 @@ export function useGameEngine() {
   const [busy, setBusy] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [dieFace, setDieFace] = useState(1);
+  const [diceShown, setDiceShown] = useState(false);
   const [moving, setMoving] = useState(false);
+  const seqTokenRef = useRef(0); // aborta secuencias en curso al cambiar de turno
   const [awaitingCard, setAwaitingCard] = useState(false);
   const [pendingFinal, setPendingFinal] = useState(false);
   const [pendingColor, setPendingColor] = useState(null);
@@ -46,8 +49,10 @@ export function useGameEngine() {
   const pickAvatar = (ti, id) => setAvatarSel(prev => { const n = [...prev]; n[ti] = n[ti] === id ? null : id; return n; });
 
   const resetTurnFlags = () => {
-    setRolling(false); setMoving(false); setAwaitingCard(false); setBusy(false);
+    seqTokenRef.current++;                 // corta cualquier secuencia en vuelo
+    setRolling(false); setMoving(false); setDiceShown(false); setAwaitingCard(false); setBusy(false);
     setCard(null); setChoiceIdx(null); setRoundType(null); setPendingFinal(false); setPendingColor(null);
+    cameraBus.set("MAIN");                 // cada turno arranca en la vista principal
   };
 
   // Paso previo: elegir tipo de dado antes de iniciar.
@@ -63,34 +68,78 @@ export function useGameEngine() {
 
   const computePath = (pos, val) => { const p = []; let cur = pos, dir = 1; for (let k = 0; k < val; k++) { if (cur === 60) dir = -1; cur += dir; p.push(cur); } return p; };
 
-  const doRollDigital = () => {
-    if (busy) return; setBusy(true); setRolling(true); Sound.diceRoll();
-    const val = 1 + Math.floor(Math.random() * 6); let ticks = prefersReduced() ? 2 : 20, i = 0;
+  /* --- Secuencia sincronizada con la cámara ---------------------------
+     Regla de oro: ninguna acción arranca mientras la cámara se mueve.
+     Cada paso pide un encuadre, ESPERA a que la cámara llegue
+     (cameraBus.waitArrived) y hace una pausa corta (0.3-0.4s) antes de
+     seguir. Los tiempos están pensados para verse bien en un celular. */
+  const aborted = (token) => token !== seqTokenRef.current;
+
+  const flicker = (val, token) => new Promise((res) => {
+    let ticks = prefersReduced() ? 2 : 15, i = 0;
     const iv = setInterval(() => {
+      if (aborted(token)) { clearInterval(iv); res(); return; }
       setDieFace(1 + Math.floor(Math.random() * 6)); i++;
-      if (i >= ticks) { clearInterval(iv); setDieFace(val); setRolling(false); Sound.diceResult(val); setTimeout(() => moveActive(val), 850); }
-    }, prefersReduced() ? 60 : 90);
-  };
+      if (i >= ticks) { clearInterval(iv); setDieFace(val); res(); }
+    }, prefersReduced() ? 60 : 85);
+  });
 
-  const rollPhysical = (n) => { if (busy) return; setBusy(true); setRolling(true); setDieFace(n); Sound.diceRoll();
-    setTimeout(() => { setRolling(false); Sound.diceResult(n); setTimeout(() => moveActive(n), 850); }, 700); };
-
-  const moveActive = (val) => {
-    setMoving(true); const startPos = teams[activeIndex].position; const path = computePath(startPos, val); let i = 0;
+  const runMove = (val, token) => new Promise((resolve) => {
+    const startPos = teams[activeIndex].position;
+    const path = computePath(startPos, val);
+    if (!path.length) { resolve(startPos); return; }
+    setMoving(true);
+    const stepDelay = prefersReduced() ? 40 : 680;
+    let i = 0;
     const step = () => {
+      if (aborted(token)) { resolve(path[Math.max(0, i - 1)] ?? startPos); return; }
       const p = path[i]; setTeams(prev => { const n = prev.map(t => ({ ...t })); n[activeIndex].position = p; return n; }); Sound.move(); i++;
-      if (i < path.length) { setTimeout(step, prefersReduced() ? 40 : 700); } // lento, casillero por casillero
+      if (i < path.length) setTimeout(step, stepDelay);
       else {
         const finalPos = path[path.length - 1];
-        setTimeout(() => {              // pausa al llegar (la ficha gira a mirar la cámara, aún cerca)
-          setMoving(false); setBusy(false); // fin → la cámara vuelve lento a la vista general
-          setTimeout(() => { setAwaitingCard(true); setPendingColor(colorAt(finalPos)); setPendingFinal(finalPos === 60); }, 1300); // recién después, la carta
-        }, 800);
+        // deja terminar el último salto y el giro al frente antes de la carta
+        setTimeout(() => { setMoving(false); resolve(finalPos); }, prefersReduced() ? 60 : 1050);
       }
     };
-    // la cámara se acerca ~1.5s (y la ficha gira de espaldas) antes de arrancar el recorrido
-    if (path.length) setTimeout(step, prefersReduced() ? 40 : 1500); else { setMoving(false); setAwaitingCard(true); setBusy(false); }
+    step(); // 1er paso: la ficha gira sola (anticipación) antes de saltar
+  });
+
+  const runRoll = async (val, physical) => {
+    const token = ++seqTokenRef.current;
+    setBusy(true);
+    const pause = prefersReduced() ? 0 : 350;
+    // 1) vista principal del tablero + pausa corta
+    cameraBus.set("MAIN"); await cameraBus.waitArrived(); await wait(pause);
+    if (aborted(token)) return;
+    // 2) recién ahí se lanza el dado
+    setDiceShown(true); setRolling(true); Sound.diceRoll();
+    if (!physical) await flicker(val, token); else { setDieFace(val); await wait(prefersReduced() ? 60 : 700); }
+    if (aborted(token)) return;
+    // 3) el dado frena y se asienta
+    setRolling(false); Sound.diceResult(val);
+    await wait(prefersReduced() ? 60 : 520);
+    if (aborted(token)) return;
+    // 4) la cámara se acerca al dado y sostiene para leer la cara
+    cameraBus.set("DICE_REVEAL"); await cameraBus.waitArrived();
+    await wait(prefersReduced() ? 150 : 1300);
+    if (aborted(token)) return;
+    setDiceShown(false);
+    // 5) vuelve a la vista principal + pausa
+    cameraBus.set("MAIN"); await cameraBus.waitArrived(); await wait(pause);
+    if (aborted(token)) return;
+    // 6) coloca la cámara de seguimiento ANTES de mover
+    cameraBus.set("CHASE"); await cameraBus.waitArrived(); await wait(pause);
+    if (aborted(token)) return;
+    // 7) mueve el avatar (gira, salta, y al final gira al frente)
+    const finalPos = await runMove(val, token);
+    if (aborted(token)) return;
+    // 8) recién cuando termina el avatar aparece la carta
+    setBusy(false);
+    setAwaitingCard(true); setPendingColor(colorAt(finalPos)); setPendingFinal(finalPos === 60);
   };
+
+  const doRollDigital = () => { if (busy) return; runRoll(1 + Math.floor(Math.random() * 6), false); };
+  const rollPhysical = (n) => { if (busy) return; runRoll(n, true); };
 
   const pickTwo = (cat) => {
     const pool = BANK[cat]; if (!usedRef.current[cat]) usedRef.current[cat] = new Set(); let used = usedRef.current[cat];
@@ -120,7 +169,7 @@ export function useGameEngine() {
     else if (roundType === "todos") { if (w != null) { Sound.correct(); startTurn(w); } else startTurn(nextIdx(activeIndex)); }
     else if (roundType === "final") { if (w === activeIndex) { Sound.victory(); setPhase("victory"); return; } else if (w != null) { Sound.correct(); startTurn(w); } else startTurn(nextIdx(activeIndex)); }
   };
-  const finalizeGame = () => { setPhase("setup"); setTeams([]); setAvatarSel([null, null, null, null]); setDiceType(null); setNumTeams(2); setTimerDuration(TIMER_DEFAULT); resetTurnFlags(); setActiveIndex(0); setTurnNum(1); };
+  const finalizeGame = () => { cameraBus.reset(); setPhase("setup"); setTeams([]); setAvatarSel([null, null, null, null]); setDiceType(null); setNumTeams(2); setTimerDuration(TIMER_DEFAULT); resetTurnFlags(); setActiveIndex(0); setTurnNum(1); };
 
   /* Cuenta regresiva de preparación (5s) */
   useEffect(() => {
@@ -154,7 +203,7 @@ export function useGameEngine() {
   return {
     // estado
     phase, numTeams, difficulty, timerDuration, avatarSel, diceType, teams, activeIndex, turnNum,
-    busy, rolling, dieFace, moving, awaitingCard, pendingFinal, pendingColor,
+    busy, rolling, dieFace, diceShown, moving, awaitingCard, pendingFinal, pendingColor,
     card, choiceIdx, roundType, countdown, secondsLeft,
     // derivados
     canStart, active, nextIdx, leaderIdx, leaderHasLead, step,

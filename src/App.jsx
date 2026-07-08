@@ -124,7 +124,7 @@ function MenuBackground() {
 function Logo({ size = 1, banner = true }) {
   return (
     <div style={{ display: "inline-block", textAlign: "center" }}>
-      <img src="/logo.webp" alt="Pictionahse" style={{ width: `${230 * size}px`, maxWidth: "82vw", height: "auto", display: "block", margin: "0 auto", filter: "drop-shadow(0 6px 12px rgba(0,0,0,.5)) drop-shadow(0 0 18px rgba(132,88,255,.35))" }} />
+      <img src="/logo.webp" alt="Pictionashe" style={{ width: `${230 * size}px`, maxWidth: "82vw", height: "auto", display: "block", margin: "0 auto", filter: "drop-shadow(0 6px 12px rgba(0,0,0,.5)) drop-shadow(0 0 18px rgba(132,88,255,.35))" }} />
       {banner && (
         <div style={{ marginTop: 2, display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(111,73,232,0.34)",
           backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
@@ -462,7 +462,7 @@ export default function App() {
 
   const {
     phase, numTeams, timerDuration, avatarSel, diceType, teams, activeIndex,
-    busy, rolling, dieFace, moving, awaitingCard, pendingColor,
+    busy, rolling, dieFace, diceShown, moving, awaitingCard, pendingColor,
     card, choiceIdx, roundType, countdown, secondsLeft,
     canStart, active, leaderIdx, leaderHasLead, step,
     setNumTeams, setTimerDuration, setAvatarSel, pickAvatar,
@@ -612,7 +612,7 @@ export default function App() {
       <style>{CSS}</style>
 
       {/* TABLERO a pantalla completa (elemento principal) */}
-      <Board3D teams={teams} activeIndex={activeIndex} rolling={rolling} dieFace={dieFace} moving={moving} showDice={phase === "board" && !moving && (rolling || busy)} overview={camOverview} />
+      <Board3D teams={teams} activeIndex={activeIndex} rolling={rolling} dieFace={dieFace} moving={moving} showDice={diceShown && phase === "board"} overview={camOverview} />
 
       {/* BARRA SUPERIOR flotante: sonido + chips (izq) · logo + cámara (der) */}
       <div style={{ position: "absolute", top: "calc(8px + env(safe-area-inset-top))", left: 10, right: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, pointerEvents: "none", zIndex: 6 }}>
@@ -623,7 +623,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end", pointerEvents: "auto", flex: "0 0 auto" }}>
-          <img src="/logo.webp" alt="Pictionahse" style={{ width: 88, height: "auto", display: "block", filter: "drop-shadow(0 2px 4px rgba(0,0,0,.55))" }} />
+          <img src="/logo.webp" alt="Pictionashe" style={{ width: 88, height: "auto", display: "block", filter: "drop-shadow(0 2px 4px rgba(0,0,0,.55))" }} />
           <button className="pk-btn" onClick={() => setCamOverview(true)} aria-label="Vista general" title="Vista general del tablero" style={{ width: 42, height: 42, borderRadius: 12, border: `1px solid ${C.line}`, background: camOverview ? C.purple : "rgba(20,16,36,.72)", backdropFilter: "blur(6px)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 3px 6px rgba(0,0,0,.4)" }}><IconCamera size={20} /></button>
         </div>
       </div>

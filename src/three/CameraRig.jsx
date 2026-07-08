@@ -2,31 +2,40 @@ import { useRef, useEffect } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { teamXZ } from "./boardLayout.js";
+import { cameraBus } from "./cameraBus.js";
 
 /* ============================================================
-   CÁMARA CINEMATOGRÁFICA (perspectiva) — un solo mundo, misma
-   luz e inclinación. Estados suaves + arrastre para mirar el
-   tablero (con límites y regreso suave al centro).
-   Secuencia del dado: al tirar la cámara va a la vista de tiro,
-   el dado se lanza desde el lado de la cámara, rueda y para, y
-   la cámara se ACERCA al dado para mostrar el número.
+   CÁMARA CINEMATOGRÁFICA (perspectiva) manejada por cameraBus.
+   La lógica pide un encuadre; la cámara va suave y, cuando llega,
+   avisa (markArrived) para que la secuencia continúe. Ninguna
+   acción arranca mientras la cámara se mueve.
+   Encuadres pensados para PANTALLA VERTICAL (celular):
+   - MAIN: vista principal del tablero (todo el circuito).
+   - DICE_REVEAL: acercamiento cenital al dado (se lee la cara).
+   - CHASE: sigue de cerca a la ficha activa durante el salto.
+   - OVERVIEW: botón manual "vista general".
+   Cada encuadre define offset [x,y,z], FOV y a qué mira (focus).
    ============================================================ */
 
-const OFF_OVERVIEW = [0, 33, 50];      // botón: todo el tablero
-const OFF_REST = [0, 13, 21];          // reposo: sigue la ficha activa (algo más lejos)
-const OFF_DICE_THROW = [0, 14.5, 23];  // tiro: vista general para ver el lanzamiento
-const OFF_DICE_REVEAL = [0, 6.5, 10];  // resultado: acercamiento al dado
-const OFF_CHASE = [0, 7, 13];          // sigue de cerca el recorrido
-const PAN_LIMIT = 6;                   // límite del arrastre (nunca pierde el tablero)
+const VIEWS = {
+  MAIN:        { off: [0, 25, 31], fov: 46, focus: "center" },
+  DICE_REVEAL: { off: [0, 8.5, 10], fov: 30, focus: "center" },
+  CHASE:       { off: [0, 11.5, 16], fov: 42, focus: "active" },
+  OVERVIEW:    { off: [0, 34, 47], fov: 47, focus: "center" },
+};
 
-export function CameraRig({ layout, teams, activeIndex, rolling, moving, showDice, overview }) {
+const PAN_LIMIT = 6;      // límite del arrastre manual (no pierde el tablero)
+const LOOK_Y = 0.4;
+
+export function CameraRig({ layout, teams, activeIndex, overview }) {
   const { camera, gl } = useThree();
-  const tgt = useRef(new THREE.Vector3(0, 0.4, 0));
-  const off = useRef(new THREE.Vector3(...OFF_REST));
-  const look = useRef(new THREE.Vector3(0, 0.4, 0));
+  const off = useRef(new THREE.Vector3(...VIEWS.MAIN.off));
+  const tgt = useRef(new THREE.Vector3(0, LOOK_Y, 0));   // punto que sigue el encuadre
+  const look = useRef(new THREE.Vector3(0, LOOK_Y, 0));  // hacia dónde mira (suavizado)
+  const fov = useRef(VIEWS.MAIN.fov);
   const pan = useRef({ x: 0, z: 0, tx: 0, tz: 0, dragging: false, lx: 0, ly: 0, moved: 0 });
 
-  // arrastre con el dedo/mouse para mover la vista del tablero
+  // arrastre con el dedo/mouse para mirar el tablero
   useEffect(() => {
     const el = gl.domElement;
     const down = (e) => { const p = pan.current; p.dragging = true; p.lx = e.clientX; p.ly = e.clientY; p.moved = 0; };
@@ -45,33 +54,51 @@ export function CameraRig({ layout, teams, activeIndex, rolling, moving, showDic
   }, [gl]);
 
   useFrame((_, dt) => {
-    const active = teams[activeIndex];
-    const axz = active ? teamXZ(layout, active.position) : { x: 0, z: 0 };
+    dt = Math.min(dt, 1 / 30);
+    // encuadre pedido: el botón "vista general" tiene prioridad manual
+    const key = overview ? "OVERVIEW" : (VIEWS[cameraBus.state] ? cameraBus.state : "MAIN");
+    const view = VIEWS[key];
 
-    let dTx = 0, dTz = 0, dOff;
-    if (overview) { dOff = OFF_OVERVIEW; }
-    else if (rolling) { dOff = OFF_DICE_THROW; }                  // ver el lanzamiento
-    else if (showDice) { dOff = OFF_DICE_REVEAL; }               // acercarse al dado (resultado)
-    else if (moving) { dTx = axz.x; dTz = axz.z; dOff = OFF_CHASE; } // seguir el recorrido
-    else { dTx = axz.x; dTz = axz.z; dOff = OFF_REST; }           // reposo: ficha activa
+    // punto a seguir según el encuadre
+    let fx = 0, fz = 0;
+    if (view.focus === "active") {
+      const active = teams[activeIndex];
+      const axz = active ? teamXZ(layout, active.position) : { x: 0, z: 0 };
+      fx = axz.x; fz = axz.z;
+    }
 
-    // pan: cuando no se arrastra, el objetivo vuelve suave al centro
+    // pan manual: al soltar, vuelve suave al centro
     const p = pan.current;
     if (!p.dragging) { const e = Math.min(1, 3 * dt); p.tx *= (1 - e); p.tz *= (1 - e); }
     const pk = 1 - Math.exp(-8 * dt);
     p.x += (p.tx - p.x) * pk; p.z += (p.tz - p.z) * pk;
 
-    const k = 1 - Math.exp(-1.4 * dt);   // transiciones lentas y cinematográficas
-    tgt.current.x += (dTx + p.x - tgt.current.x) * k;
-    tgt.current.z += (dTz + p.z - tgt.current.z) * k;
-    off.current.x += (dOff[0] - off.current.x) * k;
-    off.current.y += (dOff[1] - off.current.y) * k;
-    off.current.z += (dOff[2] - off.current.z) * k;
+    // suavizado del encuadre (rápido pero cinematográfico)
+    const k = 1 - Math.exp(-3.2 * dt);
+    tgt.current.x += (fx + p.x - tgt.current.x) * k;
+    tgt.current.z += (fz + p.z - tgt.current.z) * k;
+    off.current.x += (view.off[0] - off.current.x) * k;
+    off.current.y += (view.off[1] - off.current.y) * k;
+    off.current.z += (view.off[2] - off.current.z) * k;
 
     camera.position.set(tgt.current.x + off.current.x, off.current.y, tgt.current.z + off.current.z);
     look.current.x += (tgt.current.x - look.current.x) * k;
     look.current.z += (tgt.current.z - look.current.z) * k;
-    camera.lookAt(look.current.x, 0.4, look.current.z);
+    camera.lookAt(look.current.x, LOOK_Y, look.current.z);
+
+    // FOV animado (parte del encuadre; ayuda a leer en vertical)
+    if (Math.abs(fov.current - view.fov) > 0.01) {
+      fov.current += (view.fov - fov.current) * k;
+      camera.fov = fov.current; camera.updateProjectionMatrix();
+    }
+
+    // ¿llegó? el encuadre (offset + foco + FOV) está en su lugar y el pan quieto.
+    if (!overview) {
+      const dOff = Math.hypot(view.off[0] - off.current.x, view.off[1] - off.current.y, view.off[2] - off.current.z);
+      const dFocus = view.focus === "center" ? Math.hypot(tgt.current.x - p.x, tgt.current.z - p.z) : 0;
+      const dFov = Math.abs(view.fov - fov.current);
+      if (dOff < 0.4 && dFocus < 0.5 && dFov < 1.0) cameraBus.markArrived();
+    }
   });
 
   return null;

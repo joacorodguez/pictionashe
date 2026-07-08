@@ -241,6 +241,7 @@ function AnimatedPiece({ avatarId, targetX, targetZ, surface, active, moving, on
     x: targetX, z: targetZ, queue: [],
     jumping: false, from: { x: targetX, z: targetZ }, to: { x: targetX, z: targetZ }, t: 0,
     phase: Math.random() * Math.PI * 2, facing: 0, heading: 0, dustT: 999,
+    turning: false, turnT: 0,
   }).current;
   const prev = useRef({ x: targetX, z: targetZ });
 
@@ -252,10 +253,18 @@ function AnimatedPiece({ avatarId, targetX, targetZ, surface, active, moving, on
   }, [targetX, targetZ]);
 
   useFrame((rf, dt) => {
+    // Antes de saltar: primero GIRA hacia la dirección, y recién ahí salta.
     if (!s.jumping && s.queue.length) {
-      s.jumping = true; s.from = { x: s.x, z: s.z }; s.to = s.queue.shift(); s.t = 0;
-      // mira hacia la dirección del próximo casillero
-      s.heading = Math.atan2(s.to.x - s.from.x, s.to.z - s.from.z);
+      if (!s.turning) {
+        s.turning = true; s.turnT = 0;
+        const nxt = s.queue[0];
+        s.heading = Math.atan2(nxt.x - s.x, nxt.z - s.z);
+      }
+      s.turnT += dt;
+      let df = s.heading - s.facing; while (df > Math.PI) df -= Math.PI * 2; while (df < -Math.PI) df += Math.PI * 2;
+      if (Math.abs(df) < 0.14 || s.turnT > 0.4) {   // ya mira al destino → salta
+        s.turning = false; s.jumping = true; s.from = { x: s.x, z: s.z }; s.to = s.queue.shift(); s.t = 0;
+      }
     }
     if (s.jumping) {
       s.t += dt / JUMP_DUR; const p = Math.min(1, s.t);
@@ -272,8 +281,8 @@ function AnimatedPiece({ avatarId, targetX, targetZ, surface, active, moving, on
       model.current.position.y = Math.sin(t * 2.1 + s.phase) * 0.03;
       model.current.scale.set(1, breathe, 1);
     }
-    // Giro: la ficha mira hacia la dirección del próximo casillero; en reposo, a la cámara.
-    const facingTarget = (s.jumping || s.queue.length > 0) ? s.heading : 0;
+    // Giro: mira hacia la dirección mientras gira/salta o quedan pasos; al terminar, al frente.
+    const facingTarget = (s.jumping || s.turning || s.queue.length > 0) ? s.heading : 0;
     let d = facingTarget - s.facing;
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;

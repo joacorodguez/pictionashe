@@ -70,7 +70,7 @@ export function GameCanvas({ teams = [], activeIndex = 0, rolling = false, dieFa
       <PerformanceMonitor />
       <AdaptiveDpr pixelated />
       <Lights />
-      <CameraRig layout={layout} teams={teams} activeIndex={activeIndex} rolling={rolling} moving={moving} showDice={showDice} overview={overview} />
+      <CameraRig layout={layout} teams={teams} activeIndex={activeIndex} overview={overview} />
 
       <Suspense fallback={null}>
         <Reflections />
