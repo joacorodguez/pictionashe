@@ -1,7 +1,7 @@
 /* Service worker de Pictionahse — instalable + offline básico.
    - Navegación: network-first (así cada deploy nuevo se ve al toque).
    - Assets: cache-first (los nombres llevan hash, se auto-actualizan). */
-const CACHE = "pictionahse-v1";
+const CACHE = "pictionashe-v2";
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
