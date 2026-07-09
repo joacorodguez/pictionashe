@@ -17,14 +17,14 @@ const CENTER = { x: 0, z: 0 }; // el dado se lanza al centro del tablero
 function Lights() {
   return (
     <>
-      <ambientLight intensity={0.78} />
-      <hemisphereLight args={["#ffe9cf", "#6a5a70", 0.55]} />
-      {/* sol de atardecer: cálido, desde un lado y bajo */}
+      <ambientLight intensity={0.7} />
+      <hemisphereLight args={["#ffe4c4", "#5f5060", 0.5]} />
+      {/* sol de atardecer: cálido, suave (la lámpara aporta el resto) */}
       <directionalLight
         castShadow
         position={[14, 13, 9]}
-        intensity={1.15}
-        color="#ffd39a"
+        intensity={0.92}
+        color="#ffcf95"
         shadow-mapSize={[1536, 1536]}
         shadow-bias={-0.0004}
         shadow-camera-left={-24}

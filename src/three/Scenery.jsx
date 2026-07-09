@@ -110,12 +110,69 @@ function EnvironmentBase({ layout }) {
 }
 
 
+/* --------- Rincón acogedor: sillón + mesa + lámpara con luz cálida ---------
+   Muebles estilizados (primitivas) detrás del tablero, para que la escena
+   se sienta como un living al atardecer. La lámpara emite luz cálida real.
+   NOTA: son placeholders; se pueden reemplazar por GLB dedicados. */
+function Sofa({ pos = [0, 0, 0] }) {
+  const fabric = "#b06a44", cushion = "#c78a63", wood = "#5c3d27";
+  return (
+    <group position={pos}>
+      {/* asiento */}
+      <mesh position={[0, 1.2, 0]} castShadow receiveShadow><boxGeometry args={[17, 1.8, 6.5]} /><meshStandardMaterial color={fabric} roughness={0.95} /></mesh>
+      {/* respaldo */}
+      <mesh position={[0, 3.6, -2.9]} castShadow receiveShadow><boxGeometry args={[17, 4.4, 1.4]} /><meshStandardMaterial color={fabric} roughness={0.95} /></mesh>
+      {/* apoyabrazos */}
+      {[-8.3, 8.3].map((x) => (
+        <mesh key={x} position={[x, 2.4, 0]} castShadow receiveShadow><boxGeometry args={[1.6, 3.4, 6.5]} /><meshStandardMaterial color={fabric} roughness={0.95} /></mesh>
+      ))}
+      {/* almohadones */}
+      {[-5.4, 0, 5.4].map((x) => (
+        <mesh key={x} position={[x, 2.3, 0.3]} castShadow><boxGeometry args={[4.9, 1.3, 5]} /><meshStandardMaterial color={cushion} roughness={0.95} /></mesh>
+      ))}
+      {/* patas */}
+      {[[-7.6, -2.4], [7.6, -2.4], [-7.6, 2.4], [7.6, 2.4]].map(([x, z], i) => (
+        <mesh key={i} position={[x, 0.35, z]} castShadow><cylinderGeometry args={[0.35, 0.28, 0.7, 10]} /><meshStandardMaterial color={wood} roughness={0.7} /></mesh>
+      ))}
+    </group>
+  );
+}
+function LampTable({ pos = [0, 0, 0] }) {
+  const wood = "#6e4a2f";
+  return (
+    <group position={pos}>
+      {/* mesita redonda */}
+      <mesh position={[0, 3.1, 0]} castShadow receiveShadow><cylinderGeometry args={[2.4, 2.4, 0.35, 24]} /><meshStandardMaterial color={wood} roughness={0.6} /></mesh>
+      {[[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]].map(([x, z], i) => (
+        <mesh key={i} position={[x, 1.5, z]} castShadow><cylinderGeometry args={[0.2, 0.2, 3, 8]} /><meshStandardMaterial color={wood} roughness={0.6} /></mesh>
+      ))}
+      {/* lámpara: base + fuste + pantalla emisiva + luz cálida */}
+      <mesh position={[0, 3.7, 0]} castShadow><cylinderGeometry args={[0.7, 0.9, 0.5, 16]} /><meshStandardMaterial color="#4a3524" roughness={0.5} metalness={0.2} /></mesh>
+      <mesh position={[0, 5.2, 0]} castShadow><cylinderGeometry args={[0.12, 0.12, 2.6, 8]} /><meshStandardMaterial color="#4a3524" roughness={0.5} metalness={0.2} /></mesh>
+      <mesh position={[0, 6.9, 0]}><cylinderGeometry args={[1.15, 1.7, 2.1, 24, 1, true]} /><meshStandardMaterial color="#ffe0ad" emissive="#ffb85e" emissiveIntensity={0.9} roughness={0.6} side={THREE.DoubleSide} /></mesh>
+      {/* luz cálida de la lámpara */}
+      <pointLight position={[0, 6.8, 0]} color="#ffca82" intensity={55} distance={46} decay={2} castShadow={false} />
+    </group>
+  );
+}
+function CozyRoom({ layout }) {
+  const { minZ } = boardBounds(layout);
+  // detrás del tablero (-z): aparece en la parte alta de la vista vertical
+  return (
+    <group name="cozy-room">
+      <Sofa pos={[-1, 0, minZ - 11]} />
+      <LampTable pos={[13.5, 0, minZ - 5]} />
+    </group>
+  );
+}
+
 export function Scenery({ layout }) {
   const slots = useMemo(() => decorationSlots(layout), [layout]);
   return (
     <group name="scenery">
       <WarmRoomBackground />
       <EnvironmentBase layout={layout} />
+      <CozyRoom layout={layout} />
       {/* Capa de decoraciones — vacía por ahora, lista para poblar.
           slots disponibles: {slots.length} (perímetro del tablero). */}
       <group name="decorations" userData={{ slots }} />
