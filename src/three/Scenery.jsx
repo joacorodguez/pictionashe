@@ -109,65 +109,6 @@ function EnvironmentBase({ layout }) {
   );
 }
 
-/* --------- Props sobre la mesa (juegos alrededor del tablero) ---------
-   Piezas simples con primitivas: dan vida al entorno sin pesar.
-   NOTA: son placeholders; se pueden reemplazar por GLB dedicados. */
-function JengaTower({ pos = [0, 0, 0], rot = 0 }) {
-  const layers = 8, bw = 1.7, bh = 0.32, bd = 0.55, gap = 0.03, items = [];
-  for (let l = 0; l < layers; l++) {
-    const y = bh / 2 + l * bh, horiz = l % 2 === 0;
-    for (let k = -1; k <= 1; k++) {
-      const px = horiz ? 0 : k * (bd + gap), pz = horiz ? k * (bd + gap) : 0;
-      const sx = horiz ? bw : bd, sz = horiz ? bd : bw;
-      items.push(
-        <mesh key={`${l}-${k}`} position={[px, y, pz]} castShadow receiveShadow>
-          <boxGeometry args={[sx, bh, sz]} />
-          <meshStandardMaterial color={(l + k) % 2 ? "#d3a468" : "#c1904f"} roughness={0.85} />
-        </mesh>
-      );
-    }
-  }
-  return <group position={pos} rotation={[0, rot, 0]}>{items}</group>;
-}
-function TableDice({ pos = [0, 0, 0], rot = 0 }) {
-  return (
-    <group position={pos} rotation={[0, rot, 0]}>
-      <mesh position={[0, 0.35, 0]} rotation={[0.3, 0.5, 0]} castShadow><boxGeometry args={[0.7, 0.7, 0.7]} /><meshStandardMaterial color="#f6ecd6" roughness={0.5} /></mesh>
-      <mesh position={[0.95, 0.32, 0.55]} rotation={[0.6, 1.1, 0.2]} castShadow><boxGeometry args={[0.64, 0.64, 0.64]} /><meshStandardMaterial color="#e24b4b" roughness={0.5} /></mesh>
-    </group>
-  );
-}
-function CardsStack({ pos = [0, 0, 0], rot = 0 }) {
-  return (
-    <group position={pos} rotation={[0, rot, 0]}>
-      <mesh position={[0, 0.13, 0]} castShadow receiveShadow><boxGeometry args={[1.5, 0.26, 2.1]} /><meshStandardMaterial color="#f7efe0" roughness={0.6} /></mesh>
-      <mesh position={[1.35, 0.03, 0.35]} rotation={[0, -0.5, 0]} castShadow><boxGeometry args={[1.5, 0.05, 2.1]} /><meshStandardMaterial color="#6f52c2" roughness={0.6} /></mesh>
-      <mesh position={[2.05, 0.04, -0.45]} rotation={[0, 0.3, 0]} castShadow><boxGeometry args={[1.5, 0.05, 2.1]} /><meshStandardMaterial color="#8869d8" roughness={0.6} /></mesh>
-    </group>
-  );
-}
-function DeskDoodles({ pos = [0, 0, 0], rot = 0 }) {
-  const pencils = [["#e6b422", 0.0], ["#d1495b", 0.16], ["#3a86ff", -0.14]];
-  return (
-    <group position={pos} rotation={[0, rot, 0]}>
-      <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0.2]} receiveShadow><planeGeometry args={[3, 4]} /><meshStandardMaterial color="#f3ecdd" roughness={0.9} /></mesh>
-      {pencils.map(([col, rz], i) => (
-        <mesh key={i} position={[-0.6 + i * 0.6, 0.11, 0.5]} rotation={[0, 0, Math.PI / 2 + rz]} castShadow><cylinderGeometry args={[0.09, 0.09, 3, 8]} /><meshStandardMaterial color={col} roughness={0.5} /></mesh>
-      ))}
-    </group>
-  );
-}
-function TableProps({ layout }) {
-  const { minX, maxX, minZ, maxZ } = boardBounds(layout);
-  return (
-    <group name="table-props" position={[0, -0.04, 0]}>
-      <JengaTower pos={[minX - 6, 0, maxZ - 3]} rot={0.35} />
-      <TableDice pos={[minX - 4.5, 0, maxZ - 8.5]} rot={0.6} />
-      <CardsStack pos={[maxX + 4, 0, minZ + 5]} rot={-0.45} />
-      <DeskDoodles pos={[maxX + 5.5, 0, maxZ - 6]} rot={-0.5} />
-    </group>
-  );
-}
 
 export function Scenery({ layout }) {
   const slots = useMemo(() => decorationSlots(layout), [layout]);
@@ -175,8 +116,7 @@ export function Scenery({ layout }) {
     <group name="scenery">
       <WarmRoomBackground />
       <EnvironmentBase layout={layout} />
-      <TableProps layout={layout} />
-      {/* Capa de decoraciones — lista para poblar con más props.
+      {/* Capa de decoraciones — vacía por ahora, lista para poblar.
           slots disponibles: {slots.length} (perímetro del tablero). */}
       <group name="decorations" userData={{ slots }} />
     </group>
