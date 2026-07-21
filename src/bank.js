@@ -1,5 +1,5 @@
 /* ---------------- BANCO — dificultad "Difícil" · 100 opciones por categoría ---------------- */
-export const BANK = {
+const DIFICIL = {
   amarillo: [
     "Freddie Mercury","Frida Kahlo","Salvador Dalí","Charly García","Gustavo Cerati","Rasputín","Napoleón","Cleopatra","Gandhi","Beethoven",
     "Mozart","Albert Einstein","Isaac Newton","Charles Chaplin","Marilyn Monroe","Elvis Presley","Bob Marley","John Lennon","Michael Jackson","Madonna",
@@ -61,3 +61,33 @@ export const BANK = {
     "Golem de piedra","Trol","Gigante","Enano","Princesa","Rey","Reina","Bufón","Arquero medieval","Vikingo"
   ]
 };
+
+/* ---------------- BANCO — dificultad "Normal" · 20 opciones por categoría ----------------
+   Palabras fáciles y conocidas, distintas a las de "Difícil". */
+const NORMAL = {
+  amarillo: [
+    "Lionel Messi","Diego Maradona","Cristiano Ronaldo","Papá Noel","Mickey Mouse","Bob Esponja","Homero Simpson","El Chavo del 8","Neymar","Perro",
+    "Gato","Vaca","Caballo","Conejo","Ratón","Cerdo","Tigre","Delfín","París","Playa"
+  ],
+  azul: [
+    "Silla","Mesa","Teléfono","Televisor","Pelota","Reloj","Lápiz","Libro","Cuchara","Tenedor",
+    "Cepillo de dientes","Almohada","Zapato","Sombrero","Llave","Botella","Peine","Escoba","Guitarra","Anteojos"
+  ],
+  naranja: [
+    "Cepillarse los dientes","Manejar un auto","Tomar mate","Bailar","Cantar","Dormir","Cocinar","Barrer","Lavar los platos","Jugar al fútbol",
+    "Sacar una foto","Peinarse","Nadar","Correr","Saltar la soga","Leer un libro","Escribir una carta","Regar las plantas","Planchar","Comer una pizza"
+  ],
+  verde: [
+    "Cars","Minions","Peppa Pig","Pokémon","Dragon Ball","Barbie","Star Wars","Ben 10","Naruto","One Piece",
+    "Los Pitufos","Scooby-Doo","Tom y Jerry","Patrulla Canina","Sonic","Los Padrinos Mágicos","Angry Birds","CoComelon","Garfield","Padre de Familia"
+  ],
+  rojo: [
+    "Comer un helado","Reírse a carcajadas","Aplaudir","Estornudar","Bostezar","Saludar con la mano","Soplar velitas","Tomar sopa","Sacarse una selfie","Jugar a las cartas",
+    "Perro persiguiendo su cola","Gato asustado","Pájaro volando","Pez nadando","Bebé gateando","Anciano con bastón","Festejar un gol","Chef cocinando","Cartero con una carta","Reírse tapándose la boca"
+  ]
+};
+
+/* Bancos por dificultad. El motor elige según la dificultad seleccionada. */
+export const BANKS = { normal: NORMAL, dificil: DIFICIL };
+/* Compat: por defecto, el banco "Difícil". */
+export const BANK = DIFICIL;

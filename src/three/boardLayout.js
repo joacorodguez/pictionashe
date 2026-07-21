@@ -11,8 +11,10 @@ export const GRID_COLS = 13;
 export const GRID_ROWS = 14;
 
 /* Tamaño de celda en unidades de mundo (separación entre centros de
-   casilleros). Compartido por el tablero, el suelo y la cámara. */
-export const CELL = 2;
+   casilleros). Compartido por el tablero, el suelo y la cámara.
+   Reducido 25% (2 → 1.5) para que el tablero se vea más chico sobre
+   la mesa, con espacio libre alrededor para los objetos decorativos. */
+export const CELL = 1.5;
 
 /* Camino 1→60 como [col, row] (0-indexado). Traza el circuito
    del plano: baja por la izquierda-arriba, recorre el borde,

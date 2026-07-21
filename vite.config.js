@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Permite importar modelos .glb como URL de asset (assets/environment/*).
+  assetsInclude: ["**/*.glb"],
   server: {
     port: 5173,
     host: true,

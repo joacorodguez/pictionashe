@@ -6,7 +6,8 @@ import { MODELS, modelForAvatar } from "./models.js";
 import { Model } from "./Model.jsx";
 import { buildBoardLayout, teamXZ, CELL } from "./boardLayout.js";
 import { CAT_META, colorAt } from "../game/constants.js";
-import masksUrl from "../../Mascaras.teatro.png";
+import { Sound } from "../audio/sound.js";
+import masksUrl from "../../assets/board/mascaras-teatro.png";
 
 /* ============================================================
    TABLERO 3D — suelo (ground.glb instanciado) + casilleros
@@ -19,12 +20,15 @@ export const SURFACE_Y = 0.06;   // altura del tope del casillero (superficie ú
 const TILE_FOOT = CELL * 0.99;   // footprint del casillero (casi toca al vecino)
 const GROUND_FOOT = CELL;        // el módulo de suelo tapa la celda completa
 const TILE_RISE = SURFACE_Y;     // cuánto sobresale la baldosa sobre el suelo (mundo)
-const PIECE_SIZE = 1.4;          // alto de las fichas (protagonistas)
-const MATE_OFFSET = 0.5;         // separación de fichas en el mismo casillero
+// Proporcionales al nuevo tamaño de tablero (CELL 2→1.5, factor 0.75) para
+// que avatares, saltos y separación se vean coherentes con casilleros más chicos.
+const BOARD_SCALE = CELL / 2;
+const PIECE_SIZE = 1.4 * BOARD_SCALE;   // alto de las fichas (protagonistas)
+const MATE_OFFSET = 0.5 * BOARD_SCALE;  // separación de fichas en el mismo casillero
 const GROUND_MARGIN = 3;         // celdas de suelo extra alrededor (para decoraciones futuras)
 
 /* Salto: lento y cinematográfico (~50% más lento) */
-const JUMP_H = 0.75;
+const JUMP_H = 0.75 * BOARD_SCALE;
 const JUMP_DUR = 0.68; // salto pesado y claramente visible
 
 /* Curva de impacto del casillero: se hunde apenas y rebota (amortiguado). */
@@ -36,6 +40,23 @@ function tileImpact(t) {
 function firstGeometry(object) {
   let geo = null;
   object.traverse((o) => { if (!geo && o.isMesh) geo = o.geometry; });
+  return geo;
+}
+
+/* Borde más claro que la cara de arriba (truco de juegos de mesa físicos):
+   se oscurece un poco la cara SUPERIOR (normal hacia arriba) vía vertex color,
+   así los cantos/biseles quedan ~12% más claros y la ficha gana volumen y
+   legibilidad SIN subir el brillo. El vertex color se multiplica con el color
+   por instancia (cada casillero conserva su color saturado). */
+function addRimShade(geo, topShade = 0.88) {
+  const norm = geo.attributes.normal; const n = norm.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const up = Math.max(0, Math.min(1, (norm.getY(i) - 0.2) / 0.7)); // 0 cantos → 1 cara arriba
+    const s = 1 - (1 - topShade) * up;
+    col[i * 3] = s; col[i * 3 + 1] = s; col[i * 3 + 2] = s;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
   return geo;
 }
 
@@ -53,80 +74,215 @@ function normalizeToFoot(srcGeo, foot, anchorTop = true) {
   return { geometry: g, height: size.y * s };
 }
 
-/* --------- Emblema de máscaras (PNG): recorta el fondo rosa dejando
-   solo el dorado. El dorado tiene G-B alto; el rosa/oscuro no. --------- */
-function processEmblem(img) {
+/* --------- Máscaras de teatro dibujadas en DORADO brillante ---------
+   Comedia + tragedia con relleno metálico, borde de definición, brillo
+   superior, un remolino dorado detrás y destellos. Sin foto. --------- */
+/* Recorta el PNG de máscaras: quita el fondo negro por luminancia y deja
+   el dorado (máscaras + remolino + estrellas + un glow cálido tenue). */
+function processMasks(img) {
   const iw = img.width, ih = img.height;
   const t = document.createElement("canvas"); t.width = iw; t.height = ih;
   const tx = t.getContext("2d"); tx.drawImage(img, 0, 0);
   const im = tx.getImageData(0, 0, iw, ih); const d = im.data;
   for (let i = 0; i < d.length; i += 4) {
-    const g = d[i + 1], b = d[i + 2];
-    let a = (g - b - 26) / 34;              // dorado/naranja → opaco; rosa/oscuro → 0
+    const L = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    let a = (L - 52) / 120;                 // negro→transparente, dorado→opaco
     a = a < 0 ? 0 : a > 1 ? 1 : a;
-    if (g < 95) a = 0;                      // descarta tonos oscuros
-    d[i + 3] = Math.round(d[i + 3] * a);
+    d[i + 3] = Math.round(255 * a);
   }
   tx.putImageData(im, 0, 0);
   return t;
 }
 
-/* --------- Textura del tablero premium: lila claro + anillos dorados
-   + emblema de máscaras (doradas) al centro. --------- */
+/* estrella de 5 puntas (canvas) para la decoración dorada sutil */
+function goldStar(x, cx, cy, r, fill) {
+  x.save(); x.translate(cx, cy); x.beginPath();
+  for (let i = 0; i < 10; i++) { const rr = i % 2 ? r * 0.44 : r; const a = (i / 10) * Math.PI * 2 - Math.PI / 2; const px = Math.cos(a) * rr, py = Math.sin(a) * rr; i ? x.lineTo(px, py) : x.moveTo(px, py); }
+  x.closePath(); x.fillStyle = fill; x.fill(); x.restore();
+}
+
+/* --------- Textura del tablero PREMIUM: marfil/crema + decoración
+   dorada muy sutil (círculos, estrellas) + máscaras doradas al centro.
+   Devuelve 3 mapas: color, metalness y roughness. Así las MÁSCARAS se
+   renderizan como ORO METÁLICO (responden a la luz/entorno, con relieve)
+   mientras el resto del marfil queda MATE. Acabado de juego premium. --------- */
 function makeBoardSurface() {
-  const S = 1024; const c = document.createElement("canvas"); c.width = S; c.height = S; const x = c.getContext("2d");
-  // base radial lila (clara y cálida)
-  let g = x.createRadialGradient(S / 2, S * 0.44, S * 0.06, S / 2, S / 2, S * 0.75);
-  g.addColorStop(0, "#a487ec"); g.addColorStop(0.55, "#8869d8"); g.addColorStop(1, "#6f52c2");
+  const S = 1024;
+  const c = document.createElement("canvas"); c.width = S; c.height = S; const x = c.getContext("2d");
+  // mapas auxiliares: metalness (negro=mate, blanco=metal) y roughness
+  const mC = document.createElement("canvas"); mC.width = S; mC.height = S; const mx = mC.getContext("2d");
+  mx.fillStyle = "#000"; mx.fillRect(0, 0, S, S);                 // todo mate por defecto
+  const rC = document.createElement("canvas"); rC.width = S; rC.height = S; const rx = rC.getContext("2d");
+  rx.fillStyle = "#d9d9d9"; rx.fillRect(0, 0, S, S);              // marfil rugoso (mate)
+
+  // base marfil radial (cálida, muy clara)
+  let g = x.createRadialGradient(S / 2, S * 0.46, S * 0.05, S / 2, S / 2, S * 0.78);
+  g.addColorStop(0, "#F8F1E0"); g.addColorStop(0.6, "#F1E7CE"); g.addColorStop(1, "#E7DABB");
   x.fillStyle = g; x.fillRect(0, 0, S, S);
-  // viñeta muy suave (no oscurece de más)
-  g = x.createRadialGradient(S / 2, S / 2, S * 0.44, S / 2, S / 2, S * 0.76);
-  g.addColorStop(0, "rgba(45,25,90,0)"); g.addColorStop(1, "rgba(45,25,90,.26)");
+  // viñeta cálida apenas perceptible (da volumen sin ensuciar)
+  g = x.createRadialGradient(S / 2, S / 2, S * 0.52, S / 2, S / 2, S * 0.80);
+  g.addColorStop(0, "rgba(120,92,40,0)"); g.addColorStop(1, "rgba(120,92,40,.12)");
   x.fillStyle = g; x.fillRect(0, 0, S, S);
-  // anillos concéntricos DORADOS (resaltan)
-  for (let idx = 0, r = S * 0.15; r < S * 0.56; r += 30, idx++) {
-    x.beginPath(); x.arc(S / 2, S / 2, r, 0, Math.PI * 2);
-    x.strokeStyle = idx % 2 ? "rgba(245,197,24,.16)" : "rgba(247,201,44,.32)";
-    x.lineWidth = idx % 2 ? 2 : 4; x.stroke();
+  // grano/manchas muy sutiles (imperfección natural, evita el plano perfecto)
+  for (let i = 0; i < 1400; i++) { x.fillStyle = `rgba(150,120,70,${Math.random() * 0.02})`; x.fillRect(Math.random() * S, Math.random() * S, 2, 2); }
+  // círculos dorados MUY sutiles alrededor del centro
+  x.lineWidth = 2;
+  for (let r = S * 0.14; r < S * 0.32; r += 24) { x.beginPath(); x.arc(S / 2, S / 2, r, 0, Math.PI * 2); x.strokeStyle = "rgba(196,158,74,.10)"; x.stroke(); }
+  x.beginPath(); x.arc(S / 2, S / 2, S * 0.315, 0, Math.PI * 2); x.strokeStyle = "rgba(198,158,70,.18)"; x.lineWidth = 3; x.stroke();
+  // estrellas del MISMO dorado de la foto, repartidas alrededor del centro
+  const starGold = "#F6C93E";
+  const stars = [];
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2 + 0.35; const rad = 0.30 + (i % 3) * 0.035; stars.push([0.5 + Math.cos(a) * rad, 0.5 + Math.sin(a) * rad * 0.92, 0.7 + (i % 2) * 0.4]); }
+  for (const [sx, sy, rr] of stars) {
+    x.save(); x.shadowColor = "rgba(255,214,110,.85)"; x.shadowBlur = S * 0.014;
+    goldStar(x, S * sx, S * sy, S * 0.015 * rr, starGold);
+    x.restore();
   }
-  // resplandor cálido central (atardecer)
-  g = x.createRadialGradient(S / 2, S * 0.44, 0, S / 2, S / 2, S * 0.42);
-  g.addColorStop(0, "rgba(255,226,172,.16)"); g.addColorStop(1, "rgba(255,226,172,0)");
-  x.fillStyle = g; x.fillRect(0, 0, S, S);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
-  // emblema de máscaras — se carga async, se recorta y se dibuja al centro
+
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const metalTex = new THREE.CanvasTexture(mC); metalTex.anisotropy = 4;
+  const roughTex = new THREE.CanvasTexture(rC); roughTex.anisotropy = 4;
+
+  // máscaras (PNG): se cargan async → color dorado en la superficie + silueta
+  // metálica (blanca) en el mapa de metalness y oscura en el de roughness.
   const img = new Image();
   img.onload = () => {
-    const em = processEmblem(img);
-    const w = S * 0.62, h = w * (img.height / img.width);
-    x.save();
-    x.shadowColor = "rgba(60,20,10,.4)"; x.shadowBlur = 22; x.shadowOffsetY = 6;
-    x.drawImage(em, S / 2 - w / 2, S / 2 - h / 2, w, h);
-    x.restore();
-    tex.needsUpdate = true;
+    const em = processMasks(img);
+    const w = S * 0.78, h = w * (img.height / img.width);
+    const dx = S / 2 - w / 2, dy = S / 2 - h / 2;
+    x.drawImage(em, dx, dy, w, h);
+    // silueta a partir del alpha del recorte
+    const sil = document.createElement("canvas"); sil.width = em.width; sil.height = em.height;
+    const scx = sil.getContext("2d");
+    scx.drawImage(em, 0, 0); scx.globalCompositeOperation = "source-in";
+    scx.fillStyle = "#fff"; scx.fillRect(0, 0, sil.width, sil.height);
+    mx.drawImage(sil, dx, dy, w, h);                                  // metal = blanco en las máscaras
+    scx.globalCompositeOperation = "source-in"; scx.fillStyle = "#3a3a3a"; scx.fillRect(0, 0, sil.width, sil.height);
+    rx.drawImage(sil, dx, dy, w, h);                                  // roughness baja (brillante) en las máscaras
+    tex.needsUpdate = true; metalTex.needsUpdate = true; roughTex.needsUpdate = true;
   };
   img.src = masksUrl;
+  return { map: tex, metalnessMap: metalTex, roughnessMap: roughTex };
+}
+
+/* Textura de madera clara con veta MARCADA (para el marco). */
+function makeWoodTexture() {
+  const W = 512, H = 128; const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d");
+  // base con leve variación de tono a lo largo de la tabla
+  const bg = x.createLinearGradient(0, 0, W, 0);
+  bg.addColorStop(0, "#c6a566"); bg.addColorStop(0.5, "#cdaa6a"); bg.addColorStop(1, "#c2a061");
+  x.fillStyle = bg; x.fillRect(0, 0, W, H);
+  // vetas onduladas más oscuras (más y más marcadas)
+  for (let i = 0; i < 46; i++) {
+    const y = Math.random() * H, amp = 2 + Math.random() * 6, a = 0.10 + Math.random() * 0.20;
+    x.beginPath(); x.moveTo(0, y);
+    for (let px = 0; px <= W; px += 14) x.lineTo(px, y + Math.sin(px * 0.018 + i) * amp);
+    x.lineWidth = 1 + Math.random() * 2.2; x.strokeStyle = `rgba(120,84,40,${a})`; x.stroke();
+  }
+  // algunos nudos/streaks más oscuros
+  for (let i = 0; i < 5; i++) { const y = Math.random() * H; x.strokeStyle = "rgba(96,64,28,.22)"; x.lineWidth = 2 + Math.random() * 2; x.beginPath(); x.moveTo(0, y); for (let px = 0; px <= W; px += 20) x.lineTo(px, y + Math.sin(px * 0.03 + i) * 4); x.stroke(); }
+  // reflejos claros de la fibra
+  for (let i = 0; i < 14; i++) { const y = Math.random() * H; x.strokeStyle = "rgba(244,228,190,.14)"; x.lineWidth = 1; x.beginPath(); x.moveTo(0, y); x.lineTo(W, y + Math.sin(i) * 3); x.stroke(); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(3, 1); tex.anisotropy = 8;
   return tex;
 }
 
-/* --------- Suelo: superficie premium del tablero --------- */
+/* Textura de veta NEUTRA para los casilleros: gris claro con fibra sutil.
+   Se tiñe con el color del casillero (instanceColor la multiplica) → parece
+   madera pintada de ese color, con poco brillo. */
+function makeTileWoodTexture() {
+  const W = 256, H = 256; const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d");
+  x.fillStyle = "#efefef"; x.fillRect(0, 0, W, H);
+  for (let i = 0; i < 40; i++) {
+    const y = Math.random() * H, amp = 1 + Math.random() * 4, a = 0.05 + Math.random() * 0.10;
+    x.beginPath(); x.moveTo(0, y);
+    for (let px = 0; px <= W; px += 12) x.lineTo(px, y + Math.sin(px * 0.03 + i) * amp);
+    x.lineWidth = 1 + Math.random() * 1.4; x.strokeStyle = `rgba(120,110,96,${a})`; x.stroke();
+  }
+  for (let i = 0; i < 10; i++) { const y = Math.random() * H; x.strokeStyle = "rgba(255,255,255,.10)"; x.lineWidth = 1; x.beginPath(); x.moveTo(0, y); x.lineTo(W, y + Math.sin(i) * 2); x.stroke(); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.anisotropy = 8;
+  return tex;
+}
+
+/* --------- Marco de madera clara con veta (fino, apenas elevado) --------- */
+function WoodFrame({ half, y = 0.12 }) {
+  const mat = useMemo(() => new THREE.MeshStandardMaterial({ map: makeWoodTexture(), color: "#ffffff", roughness: 0.66, metalness: 0 }), []);
+  const fw = 1.2, h = 0.32, len = half * 2 + fw * 2, mid = half + fw / 2;
+  const boxes = [
+    [0, -mid, len, fw], [0, mid, len, fw],           // arriba / abajo (a lo largo de X)
+    [-mid, 0, fw, half * 2], [mid, 0, fw, half * 2],  // izquierda / derecha (a lo largo de Z)
+  ];
+  return (
+    <group>
+      {boxes.map(([px, pz, sx, sz], i) => (
+        <mesh key={i} position={[px, y, pz]} material={mat} castShadow receiveShadow>
+          <boxGeometry args={[sx, h, sz]} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/* Rectángulo con esquinas redondeadas (THREE.Shape). */
+function roundedRectShape(w, h, r) {
+  const s = new THREE.Shape();
+  const x = -w / 2, y = -h / 2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+}
+
+/* --------- Tablero: base de madera redondeada + superficie marfil --------- */
 function GroundField({ layout }) {
-  const tex = useMemo(() => makeBoardSurface(), []);
+  const surf = useMemo(() => makeBoardSurface(), []);
 
   const { pos, size } = useMemo(() => {
     const xs = layout.cells.map((c) => c.x), zs = layout.cells.map((c) => c.z);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
-    const w = (maxX - minX) + (2 * GROUND_MARGIN + 1) * CELL;
-    const d = (maxZ - minZ) + (2 * GROUND_MARGIN + 1) * CELL;
-    return { pos: [(minX + maxX) / 2, 0, (minZ + maxZ) / 2], size: Math.max(w, d) };
+    const spanX = (maxX - minX) + CELL, spanZ = (maxZ - minZ) + CELL;
+    const size = Math.max(spanX, spanZ) + 3.2;
+    return { pos: [(minX + maxX) / 2, 0, (minZ + maxZ) / 2], size };
   }, [layout]);
 
+  // superficie marfil con esquinas redondeadas (UV remapeadas a 0..1)
+  const creamGeo = useMemo(() => {
+    const g = new THREE.ShapeGeometry(roundedRectShape(size, size, size * 0.085), 16);
+    g.computeBoundingBox();
+    const bb = g.boundingBox, w = bb.max.x - bb.min.x, h = bb.max.y - bb.min.y;
+    const uv = g.attributes.uv, ps = g.attributes.position;
+    for (let i = 0; i < ps.count; i++) uv.setXY(i, (ps.getX(i) - bb.min.x) / w, (ps.getY(i) - bb.min.y) / h);
+    uv.needsUpdate = true;
+    return g;
+  }, [size]);
+
+  // base/marco de madera redondeado (un poco más grande, con bisel)
+  const baseGeo = useMemo(() => {
+    const g = new THREE.ExtrudeGeometry(roundedRectShape(size + 2.4, size + 2.4, (size + 2.4) * 0.085),
+      { depth: 0.38, bevelEnabled: true, bevelThickness: 0.12, bevelSize: 0.12, bevelSegments: 2 });
+    g.rotateX(-Math.PI / 2); g.computeBoundingBox(); g.translate(0, -g.boundingBox.max.y, 0);
+    return g;
+  }, [size]);
+
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[pos[0], 0, pos[2]]} receiveShadow>
-      <planeGeometry args={[size, size]} />
-      <meshStandardMaterial map={tex} roughness={0.62} metalness={0.05} envMapIntensity={0.22} />
-    </mesh>
+    <group position={[pos[0], 0, pos[2]]}>
+      {/* base de madera redondeada */}
+      <mesh geometry={baseGeo} position={[0, 0.05, 0]} castShadow receiveShadow>
+        <meshStandardMaterial color="#cdb083" roughness={0.62} metalness={0} />
+      </mesh>
+      {/* superficie marfil (mate) con MÁSCARAS metálicas doradas (oro real) */}
+      <mesh geometry={creamGeo} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.07, 0]} receiveShadow>
+        <meshStandardMaterial
+          map={surf.map}
+          metalnessMap={surf.metalnessMap} metalness={1}
+          roughnessMap={surf.roughnessMap} roughness={1}
+          bumpMap={surf.metalnessMap} bumpScale={0.014}
+          envMapIntensity={0.55}
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -137,10 +293,31 @@ function BoardTiles({ layout, impact }) {
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const anims = useRef([]); // impactos activos: { index, t0 }
 
-  const { geometry, height } = useMemo(() => normalizeToFoot(firstGeometry(scene), TILE_FOOT, false), [scene]);
-  // Plástico premium mate-satinado: SIN environment (envMapIntensity 0) y
-  // bastante rugoso → los colores nunca se lavan a blanco por reflejos.
-  const material = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.72, metalness: 0.0, envMapIntensity: 0.0 }), []);
+  const { geometry, height } = useMemo(() => {
+    const base = normalizeToFoot(firstGeometry(scene), TILE_FOOT, false);
+    return { geometry: addRimShade(base.geometry), height: base.height };
+  }, [scene]);
+  // Casilleros: plástico mate de juego de mesa (estilo Azul/Ticket to Ride).
+  // roughness máximo → NADA de reflejo especular ("mojado"); metalness 0;
+  // envMapIntensity 0 → SIN reflejo del entorno (nada "metálico").
+  // vertexColors: borde ~12% más claro que el tope (volumen sin brillo).
+  // AUTOILUMINACIÓN: three.js filtra las luces por CÁMARA, no por objeto, así
+  // que no se puede tener una luz que ilumine solo los casilleros. En cambio,
+  // se les suma un emissive proporcional a su PROPIO color (instanceColor, que
+  // three funde en vColor) → colores vivos y legibles aunque la sala esté en
+  // penumbra de atardecer, sin tocar la iluminación del resto de la escena.
+  const material = useMemo(() => {
+    const m = new THREE.MeshStandardMaterial({
+      color: "#ffffff", roughness: 1.0, metalness: 0.0, envMapIntensity: 0.0, vertexColors: true,
+    });
+    m.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <emissivemap_fragment>",
+        "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += vColor.rgb * 0.42;"
+      );
+    };
+    return m;
+  }, []);
 
   const setTile = (mesh, i, dy = 0) => {
     const c = layout.cells[i];
@@ -253,18 +430,14 @@ function AnimatedPiece({ avatarId, targetX, targetZ, surface, active, moving, on
   }, [targetX, targetZ]);
 
   useFrame((rf, dt) => {
-    // Antes de saltar: primero GIRA hacia la dirección, y recién ahí salta.
+    // Salta apenas hay un destino en cola y GIRA hacia la dirección DURANTE el
+    // vuelo. Antes había una pausa de giro previa al salto que, en las esquinas,
+    // trababa el movimiento y desincronizaba la cadencia (los pasos llegan cada
+    // 680ms y el salto dura 680ms: no hay margen para pausas extra).
     if (!s.jumping && s.queue.length) {
-      if (!s.turning) {
-        s.turning = true; s.turnT = 0;
-        const nxt = s.queue[0];
-        s.heading = Math.atan2(nxt.x - s.x, nxt.z - s.z);
-      }
-      s.turnT += dt;
-      let df = s.heading - s.facing; while (df > Math.PI) df -= Math.PI * 2; while (df < -Math.PI) df += Math.PI * 2;
-      if (Math.abs(df) < 0.14 || s.turnT > 0.4) {   // ya mira al destino → salta
-        s.turning = false; s.jumping = true; s.from = { x: s.x, z: s.z }; s.to = s.queue.shift(); s.t = 0;
-      }
+      const nxt = s.queue[0];
+      s.heading = Math.atan2(nxt.x - s.x, nxt.z - s.z);
+      s.jumping = true; s.from = { x: s.x, z: s.z }; s.to = s.queue.shift(); s.t = 0;
     }
     if (s.jumping) {
       s.t += dt / JUMP_DUR; const p = Math.min(1, s.t);
@@ -274,15 +447,17 @@ function AnimatedPiece({ avatarId, targetX, targetZ, surface, active, moving, on
       const { y, sy } = jumpProfile(p);
       const sxz = 1 / Math.sqrt(sy);
       if (model.current) { model.current.position.y = y; model.current.scale.set(sxz, sy, sxz); }
-      if (p >= 1) { s.jumping = false; s.x = s.to.x; s.z = s.to.z; if (model.current) { model.current.position.y = 0; model.current.scale.set(1, 1, 1); } s.dustT = 0; if (onLand) onLand(s.to.x, s.to.z); }
+      if (p >= 1) { s.jumping = false; s.x = s.to.x; s.z = s.to.z; if (model.current) { model.current.position.y = 0; model.current.scale.set(1, 1, 1); } s.dustT = 0; Sound.move(); if (onLand) onLand(s.to.x, s.to.z); }
     } else if (model.current) {
+      // idle EXTREMADAMENTE sutil: respiración apenas perceptible, no distrae
+      // la mirada del tablero (amplitud ~1/3 y velocidad menor que antes).
       const t = rf.clock.elapsedTime;
-      const breathe = 1 + Math.sin(t * 2.1 + s.phase) * 0.02;
-      model.current.position.y = Math.sin(t * 2.1 + s.phase) * 0.03;
+      const breathe = 1 + Math.sin(t * 1.5 + s.phase) * 0.008;
+      model.current.position.y = Math.sin(t * 1.5 + s.phase) * 0.012;
       model.current.scale.set(1, breathe, 1);
     }
-    // Giro: mira hacia la dirección mientras gira/salta o quedan pasos; al terminar, al frente.
-    const facingTarget = (s.jumping || s.turning || s.queue.length > 0) ? s.heading : 0;
+    // Giro: mira hacia la dirección mientras salta o quedan pasos; al terminar, al frente.
+    const facingTarget = (s.jumping || s.queue.length > 0) ? s.heading : 0;
     let d = facingTarget - s.facing;
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;

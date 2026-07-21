@@ -44,11 +44,13 @@ export function Model({ url, targetSize = 1, anchor = "center", color = null, en
     const box = new THREE.Box3().setFromObject(cloned);
     const size = new THREE.Vector3(); box.getSize(size);
     const center = new THREE.Vector3(); box.getCenter(center);
-    const maxDim = Math.max(size.x, size.y, size.z) || 1;
-    const s = targetSize / maxDim;
-    // posición del hijo (en unidades sin escalar) para centrarlo
-    const p = [-center.x, -center.y, -center.z];
-    if (anchor === "bottom") p[1] = -box.min.y; // base sobre y=0
+    const maxDim = Math.max(size.x, size.y, size.z);
+    // Guarda contra GLB con caja vacía/no finita (evita NaN que rompe la escena).
+    const fin = (v) => (Number.isFinite(v) ? v : 0);
+    const s = (Number.isFinite(maxDim) && maxDim > 1e-4) ? targetSize / maxDim : 1;
+    const p = [-fin(center.x), -fin(center.y), -fin(center.z)];
+    if (anchor === "bottom") p[1] = -fin(box.min.y); // base sobre y=0
+    else if (anchor === "top") p[1] = -fin(box.max.y); // tope sobre y=0
     return { scale: s, position: p };
   }, [cloned, targetSize, anchor]);
 

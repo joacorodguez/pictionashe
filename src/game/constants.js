@@ -8,9 +8,8 @@ export const CATS = ["amarillo", "azul", "naranja", "verde", "rojo"];
 export const TARGET_PER_CAT = 100;
 
 export const DIFFS_UI = [
-  { id: "normal", label: "Normal", enabled: false },
+  { id: "normal", label: "Normal", enabled: true },
   { id: "dificil", label: "Difícil", enabled: true },
-  { id: "muydificil", label: "Muy difícil", enabled: false },
 ];
 
 /* Metadatos de cada categoría de color. `hex/light/dark` sirven
@@ -36,18 +35,22 @@ export const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1;
 export const prefersReduced = () => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* Valida el banco de palabras al montar la app. */
-export function validateBank(BANK) {
-  const errors = []; const all = new Map();
-  for (const c of CATS) {
-    const arr = BANK[c];
-    if (!Array.isArray(arr) || arr.length !== TARGET_PER_CAT) errors.push(`${c}: ${arr ? arr.length : 0} (se esperan ${TARGET_PER_CAT})`);
-    const seen = new Set();
-    (arr || []).forEach(opt => {
-      if (!opt || !opt.trim()) errors.push(`Opción vacía en ${c}`);
-      const n = norm(opt);
-      if (seen.has(n)) errors.push(`Dup interno ${c}: "${opt}"`); seen.add(n);
-      if (all.has(n)) errors.push(`Dup entre bancos: "${opt}"`); else all.set(n, true);
-    });
+/* Valida la estructura de bancos por dificultad: { normal:{...}, dificil:{...} }.
+   Bloquea solo por problemas estructurales (categoría faltante, <2 opciones,
+   vacías o duplicadas dentro de una misma categoría). */
+export function validateBank(BANKS) {
+  const errors = [];
+  for (const diff of Object.keys(BANKS || {})) {
+    for (const c of CATS) {
+      const arr = BANKS[diff] && BANKS[diff][c];
+      if (!Array.isArray(arr) || arr.length < 2) { errors.push(`${diff}/${c}: faltan opciones (mínimo 2)`); continue; }
+      const seen = new Set();
+      arr.forEach(opt => {
+        if (!opt || !opt.trim()) errors.push(`Opción vacía en ${diff}/${c}`);
+        const n = norm(opt);
+        if (seen.has(n)) errors.push(`Duplicada en ${diff}/${c}: "${opt}"`); else seen.add(n);
+      });
+    }
   }
-  return { ok: errors.length === 0, errors, total: all.size };
+  return { ok: errors.length === 0, errors, total: 0 };
 }

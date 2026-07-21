@@ -9,6 +9,9 @@
 export const cameraBus = {
   state: "MAIN",          // estado de encuadre deseado
   arrived: true,          // ¿la cámara ya llegó a ese encuadre?
+  focus: { x: 0, y: 0.4, z: 0 }, // punto de mundo que la cámara enfoca (lo escribe
+                                 // el rig cada frame; lo lee el DoF para su plano de
+                                 // foco dinámico → el protagonista siempre nítido).
   _resolvers: [],
 
   /** Pide un encuadre nuevo. Reinicia la señal de llegada. */

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { BANK } from "../bank.js";
+import { BANKS } from "../bank.js";
 import { Sound } from "../audio/sound.js";
 import { colorAt, shuffle, prefersReduced, TIMER_DEFAULT } from "./constants.js";
 import { cameraBus, wait } from "../three/cameraBus.js";
@@ -14,7 +14,7 @@ import { cameraBus, wait } from "../three/cameraBus.js";
 export function useGameEngine() {
   const [phase, setPhase] = useState("setup");
   const [numTeams, setNumTeams] = useState(2);
-  const [difficulty] = useState("dificil");
+  const [difficulty, setDifficulty] = useState("dificil");
   const [timerDuration, setTimerDuration] = useState(TIMER_DEFAULT);
   const [avatarSel, setAvatarSel] = useState([null, null, null, null]);
   const [diceType, setDiceType] = useState(null); // 'digital' | 'fisico'
@@ -58,11 +58,19 @@ export function useGameEngine() {
   // Paso previo: elegir tipo de dado antes de iniciar.
   const goToDiceChoice = () => { Sound.ensure(); setPhase("dicechoice"); };
   const backToSetup = () => setPhase("setup");
+  // Tras elegir el dado se pasa a la RULETA de orden de turnos (no directo al
+  // tablero). La ruleta sortea el orden y llama startWithOrder.
   const startGame = (type) => {
     usedRef.current = {}; lastTwoRef.current = {};
     if (type) setDiceType(type);
     setTeams(avatarSel.slice(0, numTeams).map(id => ({ avatarId: id, position: 0 })));
-    setActiveIndex(Math.floor(Math.random() * numTeams)); setTurnNum(1); setPhase("board"); resetTurnFlags(); Sound.turn();
+    setTurnNum(1); resetTurnFlags(); setPhase("roulette");
+  };
+  // order = permutación de índices de asiento (0..numTeams-1). Reordena los
+  // equipos a ese orden y arranca la partida con el primero como activo.
+  const startWithOrder = (order) => {
+    setTeams(prev => order.map(i => prev[i]));
+    setActiveIndex(0); setTurnNum(1); setPhase("board"); resetTurnFlags(); Sound.turn();
   };
   const startTurn = (idx) => { setActiveIndex(idx); setTurnNum(n => n + 1); resetTurnFlags(); setPhase("board"); Sound.turn(); };
 
@@ -93,7 +101,9 @@ export function useGameEngine() {
     let i = 0;
     const step = () => {
       if (aborted(token)) { resolve(path[Math.max(0, i - 1)] ?? startPos); return; }
-      const p = path[i]; setTeams(prev => { const n = prev.map(t => ({ ...t })); n[activeIndex].position = p; return n; }); Sound.move(); i++;
+      const p = path[i]; setTeams(prev => { const n = prev.map(t => ({ ...t })); n[activeIndex].position = p; return n; }); i++;
+      // el sonido del paso lo dispara la ficha al ATERRIZAR (Board.jsx), así
+      // coincide exactamente con el salto y no con el cambio de estado lógico.
       if (i < path.length) setTimeout(step, stepDelay);
       else {
         const finalPos = path[path.length - 1];
@@ -142,7 +152,7 @@ export function useGameEngine() {
   const rollPhysical = (n) => { if (busy) return; runRoll(n, true); };
 
   const pickTwo = (cat) => {
-    const pool = BANK[cat]; if (!usedRef.current[cat]) usedRef.current[cat] = new Set(); let used = usedRef.current[cat];
+    const pool = (BANKS[difficulty] || BANKS.dificil)[cat]; if (!usedRef.current[cat]) usedRef.current[cat] = new Set(); let used = usedRef.current[cat];
     let avail = pool.filter(t => !used.has(t));
     if (avail.length < 2) { used.clear(); usedRef.current[cat] = used; const last = lastTwoRef.current[cat] || []; avail = pool.filter(t => !last.includes(t)); if (avail.length < 2) avail = [...pool]; }
     const two = shuffle(avail).slice(0, 2); two.forEach(t => used.add(t)); lastTwoRef.current[cat] = two; return two;
@@ -208,9 +218,9 @@ export function useGameEngine() {
     // derivados
     canStart, active, nextIdx, leaderIdx, leaderHasLead, step,
     // setters de configuración (setup)
-    setNumTeams, setTimerDuration, setAvatarSel, pickAvatar,
+    setNumTeams, setTimerDuration, setAvatarSel, pickAvatar, setDifficulty,
     // acciones de juego
-    goToDiceChoice, backToSetup, startGame, startTurn, doRollDigital, rollPhysical,
+    goToDiceChoice, backToSetup, startGame, startWithOrder, startTurn, doRollDigital, rollPhysical,
     levantarCarta, jugarCartaFinal, verCarta, selectOption, backToOptions, confirmChoice,
     endRound, endRoundEarly, resolve, finalizeGame,
   };

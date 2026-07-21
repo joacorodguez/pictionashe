@@ -92,7 +92,7 @@ export function CardStage({ card, flipped, onSelect, height = 460 }) {
   if (!card) return null;
   return (
     <div style={{ width: "100%", height, maxWidth: 380, margin: "0 auto" }}>
-      <Canvas shadows camera={{ fov: 30, position: [0, 0.3, 8.5] }} gl={{ alpha: true, antialias: true }} dpr={[1, 2]} style={{ touchAction: "none" }}>
+      <Canvas shadows camera={{ fov: 30, position: [0, 0.3, 8.5] }} gl={{ alpha: true, antialias: true }} dpr={[1, 1.5]} style={{ touchAction: "none" }}>
         <ambientLight intensity={0.95} />
         <directionalLight castShadow position={[3, 5, 6]} intensity={0.8} shadow-mapSize={[1024, 1024]} />
         <directionalLight position={[-3, 2, 4]} intensity={0.3} color="#cdd6ff" />

@@ -17,11 +17,14 @@ import { cameraBus } from "./cameraBus.js";
    Cada encuadre define offset [x,y,z], FOV y a qué mira (focus).
    ============================================================ */
 
+/* Encuadres ISOMÉTRICOS BAJOS (ángulo bajo, mucha profundidad, nada cenital).
+   El tablero es el protagonista (~70-75% de la pantalla) y arriba se ve parte
+   del entorno. Solo cambian posiciones/FOV; la lógica de cámara es la misma. */
 const VIEWS = {
-  MAIN:        { off: [0, 25, 31], fov: 46, focus: "center" },
-  DICE_REVEAL: { off: [0, 8.5, 10], fov: 30, focus: "center" },
-  CHASE:       { off: [0, 11.5, 16], fov: 42, focus: "active" },
-  OVERVIEW:    { off: [0, 34, 47], fov: 47, focus: "center" },
+  MAIN:        { off: [0, 16, 34], fov: 35, focus: "center" },  // tablero 25% más chico: cámara un poco más cerca (compensación parcial)
+  DICE_REVEAL: { off: [0, 6, 10], fov: 30, focus: "center" },
+  CHASE:       { off: [0, 8.5, 14], fov: 39, focus: "active" },
+  OVERVIEW:    { off: [0, 20, 34], fov: 42, focus: "center" },
 };
 
 const PAN_LIMIT = 6;      // límite del arrastre manual (no pierde el tablero)
@@ -85,6 +88,11 @@ export function CameraRig({ layout, teams, activeIndex, overview }) {
     look.current.x += (tgt.current.x - look.current.x) * k;
     look.current.z += (tgt.current.z - look.current.z) * k;
     camera.lookAt(look.current.x, LOOK_Y, look.current.z);
+
+    // el DoF enfoca EXACTAMENTE lo que la cámara mira (dado / avatar / tablero)
+    cameraBus.focus.x = look.current.x;
+    cameraBus.focus.y = LOOK_Y;
+    cameraBus.focus.z = look.current.z;
 
     // FOV animado (parte del encuadre; ayuda a leer en vertical)
     if (Math.abs(fov.current - view.fov) > 0.01) {

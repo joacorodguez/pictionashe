@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { BANK } from "./bank.js";
+import { BANKS } from "./bank.js";
 import { AVATARS, TEAM_COLORS, avatarOf, Crown } from "./avatars.jsx";
 import { AVATAR_TO_COLOR } from "./three/models.js";
 import {
   CATS, CAT_META, colorAt, DIFFS_UI,
   TIMER_MIN, TIMER_MAX, TIMER_STEP, TIMER_DEFAULT, fmtTime,
-  prefersReduced, validateBank,
+  prefersReduced, validateBank, shuffle,
 } from "./game/constants.js";
 import { Sound } from "./audio/sound.js";
 import { useGameEngine } from "./game/useGameEngine.js";
@@ -445,11 +445,92 @@ function TimerView({ active, card, roundType, secondsLeft, total, onEarly }) {
   );
 }
 
+/* ---------------- Ruleta de orden de turnos ----------------
+   Tras elegir el dado, gira una ruleta con un gajo por equipo y define
+   el orden en que jugarán. `order` es una permutación de índices de asiento;
+   el gajo que queda bajo el puntero es el que arranca. */
+function TurnOrderWheel({ teams, onDone }) {
+  const n = teams.length;
+  const seg = 360 / n;
+  const order = useMemo(() => shuffle(teams.map((_, i) => i)), []);
+  const SPIN_MS = 4600;
+  const [rot, setRot] = useState(0);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    const target = order[0];                          // gajo que debe quedar arriba
+    const jitter = (Math.random() - 0.5) * seg * 0.55; // cae en cualquier punto del gajo
+    const final = 360 * 6 - (target + 0.5) * seg + jitter;
+    // el cambio de ángulo va en un render POSTERIOR al montaje (no en el mismo
+    // batch que la transición) para que la rueda anime de verdad.
+    const t1 = setTimeout(() => { setRot(final); Sound.diceRoll(); }, 450);
+    const t2 = setTimeout(() => setDone(true), 450 + SPIN_MS + 120);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+
+  const colors = teams.map((t) => (TEAM_COLORS[t.avatarId] || TEAM_COLORS.zorro).main);
+  const grad = `conic-gradient(${colors.map((c, i) => `${c} ${i * seg}deg ${(i + 1) * seg}deg`).join(",")})`;
+  const R = 230, avR = R * 0.33;
+
+  return (
+    <div style={{ position: "relative", zIndex: 1, maxWidth: 460, margin: "0 auto", padding: "40px 16px calc(30px + env(safe-area-inset-bottom))", textAlign: "center" }}>
+      <Logo size={1.2} banner={false} />
+      <h2 style={{ margin: "22px 0 2px", fontSize: 25, fontWeight: 900, color: M.text, textShadow: "0 2px 10px rgba(20,10,50,.5)" }}>Orden de juego</h2>
+      <p style={{ color: M.textSoft, marginTop: 0, marginBottom: 24 }}>La ruleta decide quién arranca.</p>
+
+      <div style={{ position: "relative", width: R, height: R, margin: "0 auto" }}>
+        {/* puntero */}
+        <div style={{ position: "absolute", top: -12, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "14px solid transparent", borderRight: "14px solid transparent", borderTop: "24px solid #fff", filter: "drop-shadow(0 3px 4px rgba(0,0,0,.55))", zIndex: 3 }} />
+        {/* rueda */}
+        <div
+          style={{ width: R, height: R, borderRadius: "50%", background: grad, transform: `rotate(${rot}deg)`,
+            transition: `transform ${SPIN_MS}ms cubic-bezier(.12,.76,.14,1)`,
+            boxShadow: "0 14px 34px rgba(0,0,0,.5), inset 0 0 0 7px rgba(255,255,255,.35), inset 0 0 34px rgba(0,0,0,.28)" }}>
+          {teams.map((t, i) => {
+            const ang = (i + 0.5) * seg;
+            return (
+              <div key={i} style={{ position: "absolute", left: "50%", top: "50%", width: 50, height: 50, marginLeft: -25, marginTop: -25, transform: `rotate(${ang}deg) translateY(-${avR}px) rotate(${-ang}deg)` }}>
+                <img src={UI_AVATAR_SRC(t.avatarId)} alt="" draggable="false" style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", border: "3px solid rgba(255,255,255,.9)", boxShadow: "0 2px 6px rgba(0,0,0,.45)" }} />
+              </div>
+            );
+          })}
+        </div>
+        {/* eje central */}
+        <div style={{ position: "absolute", top: "50%", left: "50%", width: 38, height: 38, marginLeft: -19, marginTop: -19, borderRadius: "50%", background: "radial-gradient(circle at 35% 30%, #fff, #d9cff0)", boxShadow: "0 3px 9px rgba(0,0,0,.5), inset 0 1px 2px rgba(255,255,255,.9)", zIndex: 2 }} />
+      </div>
+
+      <div style={{ minHeight: 140, marginTop: 26 }}>
+        {done && (
+          <div style={{ animation: "pk-in .35s ease" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 330, margin: "0 auto 18px" }}>
+              {order.map((ti, pos) => {
+                const a = avatarOf(teams[ti].avatarId);
+                return (
+                  <div key={ti} style={{ ...mcard(), display: "flex", alignItems: "center", gap: 10, padding: "8px 14px" }}>
+                    <span style={{ fontWeight: 900, color: pos === 0 ? C.goodHi : M.textSoft, width: 26 }}>{pos + 1}º</span>
+                    <AvatarImg id={teams[ti].avatarId} size={30} />
+                    <span style={{ fontWeight: 800, color: M.text }}>{a.name}</span>
+                    {pos === 0 && <span style={{ marginLeft: "auto", fontSize: 12, color: C.goodHi, fontWeight: 800 }}>arranca</span>}
+                  </div>
+                );
+              })}
+            </div>
+            <button className="pk-btn pk-start" onClick={() => onDone(order)} style={{
+              width: "100%", maxWidth: 330, borderRadius: 18, padding: "16px 20px", fontSize: 19, fontWeight: 900, letterSpacing: 0.3,
+              border: "1px solid rgba(255,255,255,.55)", background: "linear-gradient(180deg,#8458FF,#6F49E8)", color: "#fff",
+              boxShadow: "0 8px 22px rgba(132,88,255,.5), inset 0 1px 0 rgba(255,255,255,.4)", animation: "pk-startglow 2.4s ease-in-out infinite" }}>¡Empezar!</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================
    APP — orquesta motor + escena 3D + HUD
    ============================================================ */
 export default function App() {
-  const validation = useMemo(() => validateBank(BANK), []);
+  const validation = useMemo(() => validateBank(BANKS), []);
   const g = useGameEngine();
   const [soundOn, setSoundOn] = useState(true);
   const [showHow, setShowHow] = useState(false);
@@ -466,7 +547,7 @@ export default function App() {
     card, choiceIdx, roundType, countdown, secondsLeft,
     canStart, active, leaderIdx, leaderHasLead, step,
     setNumTeams, setTimerDuration, setAvatarSel, pickAvatar,
-    goToDiceChoice, startGame, doRollDigital, rollPhysical,
+    goToDiceChoice, startGame, startWithOrder, doRollDigital, rollPhysical,
     levantarCarta, jugarCartaFinal, verCarta, selectOption, confirmChoice,
     endRoundEarly, resolve, finalizeGame,
   } = g;
@@ -505,15 +586,14 @@ export default function App() {
             <label style={{ ...mLabel, marginBottom: 12 }}>Dificultad</label>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {DIFFS_UI.map(d => { const sel = g.difficulty === d.id; return (
-                <button key={`${d.id}-${sel}`} className="pk-btn pk-mbtn" disabled={!d.enabled} title={d.enabled ? d.label : "Próximamente"}
-                  style={{ flex: "1 1 30%", padding: "13px 6px", borderRadius: 15, fontWeight: 800, position: "relative",
+                <button key={`${d.id}-${sel}`} className="pk-btn pk-mbtn" onClick={() => g.setDifficulty(d.id)} title={d.label}
+                  style={{ flex: "1 1 45%", padding: "13px 6px", borderRadius: 15, fontWeight: 800, position: "relative",
                     display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    ...segBtn(sel), color: sel ? "#fff" : (d.enabled ? M.textSoft : M.muted), opacity: d.enabled ? 1 : 0.5, cursor: d.enabled ? "pointer" : "not-allowed",
+                    ...segBtn(sel), color: sel ? "#fff" : M.textSoft,
                     animation: sel ? "pk-selpop .32s ease" : "none" }}>
-                  {d.label}{!d.enabled && <IconLock size={11} />}
+                  {d.label}
                 </button>); })}
             </div>
-            <p style={{ ...mHint, margin: "12px 0 0" }}>Por ahora solo está disponible "Difícil".</p>
           </div>
 
           <div style={{ ...mcard(), padding: 20, marginBottom: 18, ...rise(3) }}>
@@ -587,6 +667,16 @@ export default function App() {
           </div>
           <button className="pk-btn pk-mbtn" onClick={g.backToSetup} style={{ width: "100%", marginTop: 18, borderRadius: 16, padding: "15px 16px", fontSize: 16, fontWeight: 800, color: M.text, ...segBtn(false), ...rise(4) }}>Volver</button>
         </div>
+      </div>
+    );
+  }
+
+  /* ---- RULETA DE ORDEN DE TURNOS ---- */
+  if (phase === "roulette") {
+    return (
+      <div style={{ position: "relative", minHeight: "100dvh", color: M.text, fontFamily: '"Segoe UI",system-ui,-apple-system,sans-serif' }}><style>{CSS}</style>
+        <MenuBackground />
+        <TurnOrderWheel teams={teams} onDone={(order) => startWithOrder(order)} />
       </div>
     );
   }
